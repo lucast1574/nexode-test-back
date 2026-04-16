@@ -5,6 +5,16 @@ import { AppService } from './app.service';
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
+  @Get()
+  getRoot() {
+    return this.appService.getStatus();
+  }
+
+  @Get('health')
+  getHealth() {
+    return { status: 'ok' };
+  }
+
   @Get('status')
   getStatus() {
     return this.appService.getStatus();
