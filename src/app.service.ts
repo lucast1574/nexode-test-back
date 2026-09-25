@@ -33,9 +33,20 @@ export class AppService {
         // The public gateway routes by TLS SNI, before PostgreSQL's normal
         // SSLRequest. Open TLS first and send the PostgreSQL protocol inside it.
         const pool = new Pool({
-          connectionString: url,
+          host: parsed.hostname,
+          port: Number(parsed.port || 443),
+          user: decodeURIComponent(parsed.username),
+          password: decodeURIComponent(parsed.password),
+          database: decodeURIComponent(parsed.pathname.slice(1)),
           ssl: false,
-          stream: () => connectTls({ host: parsed.hostname, port: Number(parsed.port || 443), servername: parsed.hostname, rejectUnauthorized: true }),
+          stream: () => {
+            const socket = connectTls({ host: parsed.hostname, port: Number(parsed.port || 443), servername: parsed.hostname, rejectUnauthorized: true });
+            // pg calls connect() on its stream and waits for a connect event.
+            // Delay that event until the outer TLS handshake is complete.
+            socket.connect = () => socket;
+            socket.once('secureConnect', () => socket.emit('connect'));
+            return socket;
+          },
           connectionTimeoutMillis: 4000,
           max: 1,
         });
@@ -44,7 +55,8 @@ export class AppService {
         const client = new MongoClient(url, { serverSelectionTimeoutMS: 4000, connectTimeoutMS: 4000 });
         try { await client.connect(); await client.db().command({ ping: 1 }); } finally { await client.close(); }
       } else if (name === 'redis') {
-        const client = createClient({ url, socket: { connectTimeout: 4000 } });
+        const parsed = new URL(url);
+        const client = createClient({ url, socket: { connectTimeout: 4000, reconnectStrategy: false, tls: true, servername: parsed.hostname, rejectUnauthorized: true } });
         client.on('error', () => { /* Keep connection errors out of public responses. */ });
         try { await client.connect(); await client.ping(); } finally { if (client.isOpen) await client.quit(); }
       } else {
