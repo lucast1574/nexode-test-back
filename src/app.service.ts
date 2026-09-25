@@ -13,9 +13,32 @@ export class AppService {
   private async probe(name: DatabaseName, url: string | undefined): Promise<ProbeResult> {
     if (!url) return { configured: false, reachable: false };
     const started = Date.now();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      await Promise.race([
+        this.probeConnection(name, url),
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Database probe timed out')), 6000); }),
+      ]);
+      return { configured: true, reachable: true, latency_ms: Date.now() - started };
+    } catch {
+      return { configured: true, reachable: false };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  private async probeConnection(name: DatabaseName, url: string): Promise<void> {
       if (name === 'postgres') {
-        const pool = new Pool({ connectionString: url, connectionTimeoutMillis: 4000, max: 1 });
+        const parsed = new URL(url);
+        // The public gateway routes by TLS SNI, before PostgreSQL's normal
+        // SSLRequest. Open TLS first and send the PostgreSQL protocol inside it.
+        const pool = new Pool({
+          connectionString: url,
+          ssl: false,
+          stream: () => connectTls({ host: parsed.hostname, port: Number(parsed.port || 443), servername: parsed.hostname, rejectUnauthorized: true }),
+          connectionTimeoutMillis: 4000,
+          max: 1,
+        });
         try { await pool.query('SELECT 1'); } finally { await pool.end(); }
       } else if (name === 'mongodb') {
         const client = new MongoClient(url, { serverSelectionTimeoutMS: 4000, connectTimeoutMS: 4000 });
@@ -39,10 +62,6 @@ export class AppService {
         });
         try { await client.query('SELECT 1'); } finally { await client.end(); }
       }
-      return { configured: true, reachable: true, latency_ms: Date.now() - started };
-    } catch {
-      return { configured: true, reachable: false };
-    }
   }
 
   async getStatus() {

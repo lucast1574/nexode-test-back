@@ -12,7 +12,7 @@ export class AppController {
 
   @Get('health')
   getHealth() {
-    return this.appService.getStatus();
+    return { status: 'ok' };
   }
 
   @Get('status')
