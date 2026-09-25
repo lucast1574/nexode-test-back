@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { MongoClient } from 'mongodb';
 import { createClient } from 'redis';
 import { createConnection } from 'mysql2/promise';
+import { connect as connectTls } from 'node:tls';
 
 type DatabaseName = 'postgres' | 'mongodb' | 'redis' | 'mysql';
 type ProbeResult = { configured: boolean; reachable: boolean; latency_ms?: number };
@@ -24,7 +25,18 @@ export class AppService {
         client.on('error', () => { /* Keep connection errors out of public responses. */ });
         try { await client.connect(); await client.ping(); } finally { if (client.isOpen) await client.quit(); }
       } else {
-        const client = await createConnection({ uri: url, connectTimeout: 4000 });
+        // Nexode's shared :443 TCP gateway selects databases by TLS SNI before
+        // MySQL's greeting, so the client opens TLS first and runs MySQL inside it.
+        const parsed = new URL(url);
+        const client = await createConnection({
+          host: parsed.hostname,
+          port: Number(parsed.port || 443),
+          user: decodeURIComponent(parsed.username),
+          password: decodeURIComponent(parsed.password),
+          database: decodeURIComponent(parsed.pathname.slice(1)),
+          connectTimeout: 4000,
+          stream: () => connectTls({ host: parsed.hostname, port: Number(parsed.port || 443), servername: parsed.hostname, rejectUnauthorized: true }),
+        });
         try { await client.query('SELECT 1'); } finally { await client.end(); }
       }
       return { configured: true, reachable: true, latency_ms: Date.now() - started };
