@@ -16,10 +16,13 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/status (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/status')
       .expect(200)
-      .expect('Hello World!');
+      .expect(({ body }) => {
+        expect(body.service).toBe('nexode-test-backend');
+        expect(body.databases).toBeDefined();
+      });
   });
 });
