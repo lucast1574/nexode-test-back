@@ -1,29 +1,13 @@
-FROM node:20-bullseye-slim
+FROM node:22-bookworm-slim
 
-# Install system dependencies if required
-RUN apt-get update && apt-get install -y \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci
 
-# Install backend dependencies
-RUN npm install
-
-# Copy the rest of the application files
 COPY . .
-
-# Build the NestJS project
 RUN npm run build
 
-# Expose default NestJS port
+ENV NODE_ENV=production
 EXPOSE 4000
-
-# Start the server
 CMD ["npm", "run", "start:prod"]
